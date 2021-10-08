@@ -1,0 +1,17 @@
+Number of tasks N and number of processors S:
+N S
+Matrix of tasks duration for processors {C_ij}:
+C_11 C_12 ... C_1N
+...
+C_S1 C_S2 ... C_SN
+Matrix of times for transmition between processors {D_ij}:
+D_11 D12 ... D_1S
+...
+D_S1 D_S2 ... D_SS
+Graph of dependencies of tasks G in matrix view - a_ij = 0 if there's an arc, a_ij = 0 else:
+G_11 G_12 ... G_1N
+...
+G_N1 G_N2 ... G_NN
+
+
+Note: In program all numerations starts with 0
