@@ -1,9 +1,18 @@
 #include <iostream>
 #include <vector>
 #include <algorithm>
+#include <cmath>
 
-#define ITERATION_NUMBER 1000
-#define START_TEMPERATURE 50
+#define ITERATION_NUMBER 50000
+#define START_TEMPERATURE 100
+
+enum {
+    BOLTZMANN,
+    CAUCHY,
+    LOGN_DIV_N,
+};
+
+int next_temperature_type = BOLTZMANN;
 
 void print(std::vector<std::vector<int>> &a)
 {
@@ -41,28 +50,30 @@ std::vector<int> topology_sort(std::vector<std::vector<int>> &graph)
     return res;
 }
 
-// Finds first index in vector, that is not equal to `N`
-int find_ind(int N, std::vector<int> &curr)
+class TimeDiagram
 {
-    for (int i = 0; i < curr.size(); ++i) {
-        if (curr[i] != N) {
-            return i;
-        }
+public:
+    std::vector<int> task_start;
+    std::vector<int> task_finish;
+    TimeDiagram(std::vector<int> &start, std::vector<int> &finish) {
+        task_start = start;
+        task_finish = finish;
     }
-    return -1;
-}
+    int get_time() {
+        return *std::max_element(task_finish.begin(), task_finish.end()); 
+    }
+};
 
-// Now it returns time of schedule
-// mb return a lot of stuff: diargam, max time ... 
-int transform_to_diagram(int task_num, int proc_num, std::vector<std::vector<int>> &schedule, std::vector<std::vector<int>> &task_time, std::vector<std::vector<int>> &tran_time, std::vector<std::vector<int>> &parents)
+TimeDiagram get_diagram(int task_num, int proc_num, std::vector<int> &schedule_task, std::vector<int> &schedule_proc, std::vector<std::vector<int>> &task_time, std::vector<std::vector<int>> &tran_time, std::vector<std::vector<int>> &parents)
 {
     std::vector<int> task_start(task_num, -1); // start time for each task
     std::vector<int> task_finish(task_num, -1); // extra vector: finish time for each task
     std::vector<int> task_processor(task_num, -1); // number of process that has i task; can be initialized from `schedule`
     std::vector<int> times(proc_num, 0); // current finish time of each processor
-    for (int i = 0; i < schedule.size(); ++i) { // i is current tier
-        int curr_proc = find_ind(-1, schedule[i]); // curr_proc is index on which processor task is
-        int curr_task = schedule[i][curr_proc];
+    for (int i = 0; i < task_num; ++i) { // i is current tier
+        //int curr_proc = find_ind(-1, schedule[i]); // curr_proc is index on which processor task is
+        int curr_proc = schedule_proc[i];
+        int curr_task = schedule_task[i];
         int min_time = times[curr_proc]; // minimum time that is allowed for task to start from
         for (int p = 0; p < parents[curr_task].size(); ++p) { // pass through all parents to finds min_time
             int parent_task = parents[curr_task][p];
@@ -77,31 +88,71 @@ int transform_to_diagram(int task_num, int proc_num, std::vector<std::vector<int
         task_finish[curr_task] = min_time + task_time[curr_proc][curr_task];
         times[curr_proc] = min_time + task_time[curr_proc][curr_task];
     }
-
-    /*
-    print(schedule);
-    for (auto e : task_start) {
-        std::cout << e << " ";
-    }
-    std::cout << std::endl;
-    for (auto e : task_finish) {
-        std::cout << e << " ";
-    }
-    std::cout << std::endl;
-    for (auto e : task_processor) {
-        std::cout << e << " ";
-    }
-    std::cout << std::endl;
-    for (auto e : times) {
-        std::cout << e << " ";
-    }
-    std::cout << std::endl;
-    */
-
-    return *std::max_element(times.begin(), times.end());
+    TimeDiagram diagram(task_start, task_finish);
+    return diagram;
 }
 
+double next_temperature(int iteration)
+{
+    switch (next_temperature_type) {
+    case BOLTZMANN:
+        return START_TEMPERATURE / std::log(1 + (iteration + 1));
+    case CAUCHY:
+        return START_TEMPERATURE / (1 + iteration);
+    case LOGN_DIV_N:
+        return START_TEMPERATURE * std::log(1 + (iteration + 1)) / (1 + (iteration + 1));
+    }
+    return 1;
+}
 
+void switch_processor(int proc_num, std::vector<int> &schedule_proc, int curr_tier) // Operation 1
+{
+    int curr_proc = schedule_proc[curr_tier];
+    int new_proc = rand() % (proc_num - 1);
+    new_proc = new_proc < curr_proc ? new_proc : new_proc + 1;
+    schedule_proc[curr_tier] = new_proc;
+}
+
+int switch_tasks(int task_num, int proc_num, std::vector<int> &schedule_task, std::vector<int> &schedule_proc, int curr_tier, std::vector<std::vector<int>> &graph, std::vector<std::vector<int>> &parents) // Operation 2
+{
+    int curr_task = schedule_task[curr_tier];
+    int curr_proc = schedule_proc[curr_tier];
+    std::vector<int> allowed_ind; // vector of indexes which can be used to switch curr_task
+    for (int i = 0; i < task_num; ++i) {
+        if (std::find(graph[curr_task].begin(), graph[curr_task].end(), schedule_task[i]) != graph[curr_task].end()) { // if we found descedant
+            break;
+        }
+        if (std::find(parents[curr_task].begin(), parents[curr_task].end(), schedule_task[i]) != parents[curr_task].end()) { // if we found parent
+            allowed_ind.clear();
+        } else if (i != curr_tier && schedule_proc[i] == curr_proc) {
+            allowed_ind.push_back(i);   
+        }
+    }
+    if (allowed_ind.size() == 0) {
+        return 0;
+    }
+    int new_ind = allowed_ind[rand() % allowed_ind.size()];
+    schedule_task.erase(schedule_task.begin() + curr_tier);
+    schedule_proc.erase(schedule_proc.begin() + curr_tier);
+    schedule_task.insert(schedule_task.begin() + new_ind, curr_task);
+    schedule_proc.insert(schedule_proc.begin() + new_ind, curr_proc);
+    return 1;
+}
+
+void transform_schedule(int task_num, int proc_num, std::vector<int> &schedule_task, std::vector<int> &schedule_proc, std::vector<int> &new_schedule_task, std::vector<int> &new_schedule_proc, int temperature, std::vector<std::vector<int>> &graph, std::vector<std::vector<int>> &parents)
+{
+    for (int i = 0; i < temperature; ++i) {
+        int curr_tier = rand() % task_num;
+        if (rand() % 2) {
+            // Operation 1
+            switch_processor(proc_num, new_schedule_proc, curr_tier);
+        } else {
+            // Operation 2
+            // Returns 0 if nothing changed
+            switch_tasks(task_num, proc_num, new_schedule_task, new_schedule_proc, curr_tier, graph, parents);
+        }
+    }
+}
 
 int main()
 {
@@ -135,20 +186,60 @@ int main()
             } 
         }
     }
-
     /// First correct schedule
-    std::vector<std::vector<int>> schedule(task_num, std::vector<int>(proc_num, -1)); // tier view of max height: i is tier, j is processor
-    // sort tasks
-    std::vector<int> sorted = topology_sort(graph);
+    std::vector<int> schedule_task = topology_sort(graph);
+    std::vector<int> schedule_proc(task_num);
     // put tasks in random processors
     srand(2021);
     for (int i = 0; i < task_num; ++i) {
-        schedule[i][rand() % proc_num] = sorted[i];
+        schedule_proc[i] = rand() % proc_num;
     }
 
     /// Simulated annealing algorithm
-    int record = transform_to_diagram(task_num, proc_num, schedule, task_time, tran_time, parents);
+    int best_iteration = 0;
+    int best_time = get_diagram(task_num, proc_num, schedule_task, schedule_proc, task_time, tran_time, parents).get_time();
+    int curr_time = best_time;
+    std::cout << "First time: " << curr_time << std::endl;
+    std::vector<int> best_schedule_task = schedule_task;
+    std::vector<int> best_schedule_proc = schedule_proc;
+    double temperature = START_TEMPERATURE;
+    for (int k = 0; k < ITERATION_NUMBER; ++k) {
+        temperature = next_temperature(k);
+        std::vector<int> new_schedule_task = schedule_task;
+        std::vector<int> new_schedule_proc = schedule_proc;
+        transform_schedule(task_num, proc_num, schedule_task, schedule_proc, new_schedule_task, new_schedule_proc, temperature, graph, parents);
+        int new_time = get_diagram(task_num, proc_num, new_schedule_task, new_schedule_proc, task_time, tran_time, parents).get_time();
+        // TODO decrease assignments
+        if (best_time >= new_time) {
+            schedule_task = new_schedule_task;
+            best_schedule_task = new_schedule_task;
+            schedule_proc = new_schedule_proc;
+            best_schedule_proc = new_schedule_proc;
+            best_time = new_time;
+            curr_time = new_time;
+        } else if (curr_time >= new_time) {
+            schedule_task = new_schedule_task;
+            schedule_proc = new_schedule_proc;
+            curr_time = new_time;
+        } else {
+            double prob = (double) rand() / RAND_MAX;
+            //std::cout << prob << " " << curr_time << " " << new_time << " " << temperature << " " << exp((curr_time - new_time) / temperature) << std::endl;
+            if (prob <= exp((double) (curr_time - new_time) / temperature)) {
+                schedule_task = new_schedule_task;
+                schedule_proc = new_schedule_proc;
+                curr_time = new_time;
+            }
+        }
+    }
     
-
+    /// Output best diagram
+    TimeDiagram best_diagram = get_diagram(task_num, proc_num, best_schedule_task, best_schedule_proc, task_time, tran_time, parents);
+    std::cout << "Best time: " << best_diagram.get_time() << std::endl;
+    for (int i = 0; i < task_num; ++i) {
+        std::cout << "Task " << best_schedule_task[i] << " on processor " << best_schedule_proc[i] << std::endl;
+        std::cout << "From " << best_diagram.task_start[best_schedule_task[i]] << " to " << best_diagram.task_finish[best_schedule_task[i]] << std::endl;
+        std::cout << std::endl;
+    }
+    // TODO output into csv for better view
     return 0;
 }
