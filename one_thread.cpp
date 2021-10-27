@@ -3,8 +3,9 @@
 #include <algorithm>
 #include <cmath>
 
-#define ITERATION_NUMBER 50000
-#define START_TEMPERATURE 100
+#define ITERATION_NUMBER 10000
+#define START_TEMPERATURE 10000
+#define OUT "CSV"
 
 enum {
     BOLTZMANN,
@@ -12,7 +13,7 @@ enum {
     LOGN_DIV_N,
 };
 
-int next_temperature_type = BOLTZMANN;
+int next_temperature_type = CAUCHY;
 
 void print(std::vector<std::vector<int>> &a)
 {
@@ -78,7 +79,7 @@ TimeDiagram get_diagram(int task_num, int proc_num, std::vector<int> &schedule_t
         for (int p = 0; p < parents[curr_task].size(); ++p) { // pass through all parents to finds min_time
             int parent_task = parents[curr_task][p];
             int parent_proc = task_processor[parent_task];
-            int total_time = task_start[parent_task] + task_time[parent_proc][parent_task] + tran_time[parent_proc][curr_proc];
+            int total_time = task_finish[parent_task] + tran_time[parent_proc][curr_proc];
             if (min_time < total_time) {
                 min_time = total_time;
             }
@@ -105,6 +106,7 @@ double next_temperature(int iteration)
     return 1;
 }
 
+// TODO add extra criterias to operations
 void switch_processor(int proc_num, std::vector<int> &schedule_proc, int curr_tier) // Operation 1
 {
     int curr_proc = schedule_proc[curr_tier];
@@ -136,12 +138,12 @@ int switch_tasks(int task_num, int proc_num, std::vector<int> &schedule_task, st
     schedule_proc.erase(schedule_proc.begin() + curr_tier);
     schedule_task.insert(schedule_task.begin() + new_ind, curr_task);
     schedule_proc.insert(schedule_proc.begin() + new_ind, curr_proc);
-    return 1;
+    return 1; // TODO add statistics of operation drops, number of iterations summary, others 
 }
 
 void transform_schedule(int task_num, int proc_num, std::vector<int> &schedule_task, std::vector<int> &schedule_proc, std::vector<int> &new_schedule_task, std::vector<int> &new_schedule_proc, int temperature, std::vector<std::vector<int>> &graph, std::vector<std::vector<int>> &parents)
 {
-    for (int i = 0; i < temperature; ++i) {
+    for (int i = 0; i < temperature; ++i) { // TODO not like this...
         int curr_tier = rand() % task_num;
         if (rand() % 2) {
             // Operation 1
@@ -187,6 +189,7 @@ int main()
         }
     }
     /// First correct schedule
+    // TODO make class Schedule (in max tier rules) and change this two vectors to this class
     std::vector<int> schedule_task = topology_sort(graph);
     std::vector<int> schedule_proc(task_num);
     // put tasks in random processors
@@ -199,12 +202,14 @@ int main()
     int best_iteration = 0;
     int best_time = get_diagram(task_num, proc_num, schedule_task, schedule_proc, task_time, tran_time, parents).get_time();
     int curr_time = best_time;
-    std::cout << "First time: " << curr_time << std::endl;
+    if (OUT != "CSV") {
+        std::cout << "First time: " << curr_time << std::endl;
+    }
     std::vector<int> best_schedule_task = schedule_task;
     std::vector<int> best_schedule_proc = schedule_proc;
     double temperature = START_TEMPERATURE;
     for (int k = 0; k < ITERATION_NUMBER; ++k) {
-        temperature = next_temperature(k);
+        temperature = next_temperature(k); // TODO repeat cycle SPECTIAL_COUNT times without changing temperature (make nested cycle after temperature changing)
         std::vector<int> new_schedule_task = schedule_task;
         std::vector<int> new_schedule_proc = schedule_proc;
         transform_schedule(task_num, proc_num, schedule_task, schedule_proc, new_schedule_task, new_schedule_proc, temperature, graph, parents);
@@ -234,12 +239,32 @@ int main()
     
     /// Output best diagram
     TimeDiagram best_diagram = get_diagram(task_num, proc_num, best_schedule_task, best_schedule_proc, task_time, tran_time, parents);
-    std::cout << "Best time: " << best_diagram.get_time() << std::endl;
-    for (int i = 0; i < task_num; ++i) {
-        std::cout << "Task " << best_schedule_task[i] << " on processor " << best_schedule_proc[i] << std::endl;
-        std::cout << "From " << best_diagram.task_start[best_schedule_task[i]] << " to " << best_diagram.task_finish[best_schedule_task[i]] << std::endl;
-        std::cout << std::endl;
+    if (OUT != "CSV") {
+        std::cout << "Best time: " << best_diagram.get_time() << std::endl;
+        for (int i = 0; i < task_num; ++i) {
+            std::cout << "Task " << best_schedule_task[i] << " on processor " << best_schedule_proc[i] << std::endl;
+            std::cout << "From " << best_diagram.task_start[best_schedule_task[i]] << " to " << best_diagram.task_finish[best_schedule_task[i]] << std::endl;
+            std::cout << std::endl;
+        }
+        std::cout << "End temperatire: " << temperature << std::endl;
+        std::cout << "Best time: " << best_diagram.get_time() << std::endl;    
     }
-    // TODO output into csv for better view
+    // TODO change OUT to env variable or to something similar
+    if (OUT == "CSV") {
+        std::vector<std::vector<int>> csv_out(proc_num, std::vector<int>(best_diagram.get_time(), -1));
+        for (int i = 0; i < task_num; ++i) {
+            for (int j = best_diagram.task_start[best_schedule_task[i]]; j < best_diagram.task_finish[best_schedule_task[i]]; ++j) {
+                csv_out[best_schedule_proc[i]][j] = best_schedule_task[i];
+            }
+        }
+        for (int i = 0; i < proc_num; ++i) {
+            for (int j = 0; j < best_diagram.get_time() - 1; ++j) {
+                std::cout << csv_out[i][j] << ",";
+            }
+            std::cout << csv_out[i][best_diagram.get_time() - 1] << std::endl;
+        }
+    }
+    
+
     return 0;
 }

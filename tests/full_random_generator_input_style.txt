@@ -1,0 +1,10 @@
+Number of tasks:
+N
+Number of processors:
+S
+Limits of task duration:
+task_lim1, task_lim2
+Limits of processor transmitions:
+trans_lim1, trans_lim2
+Edge probability:
+prob
