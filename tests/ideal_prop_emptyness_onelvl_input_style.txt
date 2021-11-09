@@ -1,0 +1,12 @@
+Number of processors:
+S
+Time of last task (level for all processors):
+T
+Limits of task duration (last task time may be lower than task_lim1*prop_lim1):
+task_lim1, task_lim2
+Limits of proportions of processors slowness:
+prop_lim1, prop_lim2
+Limits of processor transmitions:
+trans_lim1, trans_lim2
+Edge probability (if it's possible for transmition limits):
+prob
