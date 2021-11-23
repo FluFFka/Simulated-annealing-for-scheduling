@@ -161,7 +161,7 @@ public:
                 for (int i = 0; i < task_num; ++i) {
                     int curr_tier = rand_tiers[i];
                     int curr_proc = proc[curr_tier];
-                    int new_proc =  rand() % (proc_num - 1);
+                    int new_proc =  rand() % proc_num;
                     std::pair<int, int> changes = check_CR_change_by_switch_processor(curr_proc, new_proc, curr_tier, task, proc, graph, parents);
                     int on_curr_proc = changes.first, on_new_proc = changes.second;
                     if (all_transmitions != 0 && double(transmitions - on_new_proc + on_curr_proc) / all_transmitions >= CR_U) {
