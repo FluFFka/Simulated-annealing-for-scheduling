@@ -27,8 +27,8 @@ enum {
 };
 
 int next_temperature_type = CAUCHY;
-int additional_criteria = NO_CRITERIA;
-int OUT = CSV;
+int additional_criteria = CR;
+int OUT = NO_OUTPUT;
 
 unsigned long long skipped_iterations = 0;
 
@@ -68,6 +68,38 @@ std::vector<int> topology_sort(std::vector<std::vector<int>> &graph)
     return res;
 }
 
+// returns number of predecessors on curr processor and new processor 
+std::pair<int, int> check_CR_change_by_switch_processor(int curr_proc, int new_proc, int curr_tier, std::vector<int> &tasks, std::vector<int> &procs, std::vector<std::vector<int>> &graph, std::vector<std::vector<int>> &parents)
+{
+    int on_curr_proc = 0, on_new_proc = 0;
+    int curr_task = tasks[curr_tier];
+    for (auto &task : graph[curr_task]) {
+        for (int tier = 0; tier < tasks.size(); ++tier) {
+            if (tasks[tier] == task) {
+                if (procs[tier] == curr_proc) {
+                    on_curr_proc++;
+                } else if (procs[tier] == new_proc) {
+                    on_new_proc++;
+                }
+                break;
+            }
+        }
+    }
+    for (auto &task : parents[curr_task]) {
+        for (int tier = 0; tier < tasks.size(); ++tier) {
+            if (tasks[tier] == task) {
+                if (procs[tier] == curr_proc) {
+                    on_curr_proc++;
+                } else if (procs[tier] == new_proc) {
+                    on_new_proc++;
+                }
+                break;
+            }
+        }
+    }
+    return std::pair<int, int>{on_curr_proc, on_new_proc};
+}
+
 class TierSchedule
 {
 public:
@@ -76,7 +108,7 @@ public:
     std::vector<int> proc_load; // for BF_criteria
     int transmitions = 0; // for CR criteria - number of transmitions in this schedule
     int all_transmitions = 0; // for CR criteria - number of transmitions in graph
-    TierSchedule(int task_num, int proc_num, std::vector<std::vector<int>> &graph) {
+    TierSchedule(int task_num, int proc_num, std::vector<std::vector<int>> &graph, std::vector<std::vector<int>> &parents) {
         proc = std::vector<int>(task_num);
         proc_load = std::vector<int>(proc_num, 0);
         task = topology_sort(graph);
@@ -105,6 +137,9 @@ public:
                     proc_load[proc[i]]++;
                     break;
                 case CR:
+                    // TODO describe generation CR schedule in course work
+                    // Counts number of all transmitions and put all tasks on processor 0
+                    // After this cycle try to move tasks to different processors
                     for (auto &el1 : graph[i]) {
                         all_transmitions++;
                     }
@@ -112,6 +147,29 @@ public:
                     break;
                 default:            
                     proc[i] = rand() % proc_num;
+            }
+        }
+        switch (additional_criteria) {
+        case CR:
+            // try to move tasks to different processors with saving criteria bound
+            {
+                std::vector<int> rand_tiers(task_num);
+                for (int i = 0 ; i < task_num; ++i) {
+                    rand_tiers[i] = i;
+                }
+                std::random_shuffle(rand_tiers.begin(), rand_tiers.end());
+                for (int i = 0; i < task_num; ++i) {
+                    int curr_tier = rand_tiers[i];
+                    int curr_proc = proc[curr_tier];
+                    int new_proc =  rand() % (proc_num - 1);
+                    std::pair<int, int> changes = check_CR_change_by_switch_processor(curr_proc, new_proc, curr_tier, task, proc, graph, parents);
+                    int on_curr_proc = changes.first, on_new_proc = changes.second;
+                    if (all_transmitions != 0 && double(transmitions - on_new_proc + on_curr_proc) / all_transmitions >= CR_U) {
+                        continue;
+                    }
+                    transmitions = transmitions - on_new_proc + on_curr_proc;
+                    proc[curr_tier] = new_proc;
+                }
             }
         }
     }
@@ -148,7 +206,6 @@ TimeDiagram get_diagram(int task_num, int proc_num, TierSchedule &schedule, std:
     std::vector<int> task_processor(task_num, -1); // number of process that has i task; can be initialized from `schedule`
     std::vector<int> times(proc_num, 0); // current finish time of each processor
     for (int i = 0; i < task_num; ++i) { // i is current tier
-        //int curr_proc = find_ind(-1, schedule[i]); // curr_proc is index on which processor task is
         int curr_proc = schedule.proc[i];
         int curr_task = schedule.task[i];
         int min_time = times[curr_proc]; // minimum time that is allowed for task to start from
@@ -195,42 +252,18 @@ int switch_processor(int proc_num, TierSchedule &schedule, int curr_tier, std::v
         if (schedule.get_BF_value() >= BF_U) {
             schedule.proc_load[curr_proc]++; // returns to old schedule 
             schedule.proc_load[new_proc]--;
-            return 1; // operation doesn't complete
+            return 1; // operation declined
         }
     case CR:
-        int on_curr_proc = 0, on_new_proc = 0;
-        int curr_task = schedule.task[curr_tier];
-        for (auto &task : graph[curr_task]) {
-            for (int tier = 0; tier < schedule.task.size(); ++tier) {
-                if (schedule.task[tier] == task) {
-                    if (schedule.proc[tier] == curr_proc) {
-                        on_curr_proc++;
-                    } else if (schedule.proc[tier] == new_proc) {
-                        on_new_proc++;
-                    }
-                    break;
-                }
-            }
-        }
-        for (auto &task : parents[curr_task]) {
-            for (int tier = 0; tier < schedule.task.size(); ++tier) {
-                if (schedule.task[tier] == task) {
-                    if (schedule.proc[tier] == curr_proc) {
-                        on_curr_proc++;
-                    } else if (schedule.proc[tier] == new_proc) {
-                        on_new_proc++;
-                    }
-                    break;
-                }
-            }
-        }
+        std::pair<int, int> changes = check_CR_change_by_switch_processor(curr_proc, new_proc, curr_tier, schedule.task, schedule.proc, graph, parents);
+        int on_curr_proc = changes.first, on_new_proc = changes.second;
         if (schedule.all_transmitions != 0 && double(schedule.transmitions - on_new_proc + on_curr_proc) / schedule.all_transmitions >= CR_U) {
-            return 1;
+            return 1; // operation declined
         }
         schedule.transmitions = schedule.transmitions - on_new_proc + on_curr_proc;
     }
     schedule.proc[curr_tier] = new_proc;
-    return 0;
+    return 0; // operation completed successfully
 }
 
 int switch_tasks(int task_num, int proc_num, TierSchedule &schedule, int curr_tier, std::vector<std::vector<int>> &graph, std::vector<std::vector<int>> &parents) // Operation 2
@@ -307,7 +340,7 @@ int main()
     }
     
     /// First correct schedule
-    TierSchedule schedule(task_num, proc_num, graph);
+    TierSchedule schedule(task_num, proc_num, graph, parents);
 
     /// Simulated annealing algorithm
     int best_iteration = 0;
